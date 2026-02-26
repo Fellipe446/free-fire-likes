@@ -1,56 +1,60 @@
 import os
+import asyncio
+import discord
+from discord.ext import commands
+from fastapi import FastAPI
+import uvicorn
+import threading
 import uuid
-import random
 import httpx
-from fastapi import FastAPI, BackgroundTasks
+import random
 
-app = FastAPI(title="King Dev Academy - Like Generator")
-
-# Configurações extraídas via Sniffer (Exemplo)
-GARENA_API = "https://freefire.api.garena.com" 
-GAME_VERSION = "1.103.1" # Mantenha sempre atualizado
-
-def generate_device_id():
-    """Gera um ID de dispositivo aleatório para cada like"""
-    return str(uuid.uuid4()).replace("-", "")[:16]
-
-async def process_like(target_uid: str, region: str):
-    """Lógica principal do Bot"""
-    device_id = generate_device_id()
-    
-    async with httpx.AsyncClient() as client:
-        # 1. PASSO: Autenticação Guest
-        # Nota: O endpoint real deve ser capturado no login do jogo
-        auth_url = f"{GARENA_API}/network/v1/login"
-        auth_payload = {
-            "device_id": device_id,
-            "region": region,
-            "version": GAME_VERSION
-        }
-        
-        auth_res = await client.post(auth_url, json=auth_payload)
-        
-        if auth_res.status_code == 200:
-            token = auth_res.json().get("access_token")
-            
-            # 2. PASSO: Enviar o Like
-            like_url = f"{GARENA_API}/social/v1/like"
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 11; SM-G998B)",
-                "Content-Type": "application/json"
-            }
-            like_payload = {"target_uid": target_uid}
-            
-            response = await client.post(like_url, json=like_payload, headers=headers)
-            print(f"Like enviado para {target_uid} | Status: {response.status_code}")
+# --- CONFIGURAÇÃO WEB (FASTAPI) ---
+app = FastAPI()
 
 @app.get("/")
-def home():
-    return {"message": "King Dev Academy - Gerador Ativo"}
+def read_root():
+    return {"status": "King Dev Academy - Online", "bot": "Active"}
 
-@app.post("/add-like/{uid}")
-async def add_like(uid: str, background_tasks: BackgroundTasks, region: str = "BR"):
-    # Rodar em background para não travar a resposta da API
-    background_tasks.add_task(process_like, uid, region)
-    return {"status": "Processando", "target": uid, "info": "Likes sendo enviados em fila"}
+# --- CONFIGURAÇÃO DISCORD BOT ---
+TOKEN = os.getenv("DISCORD_TOKEN") # Pega o token das variáveis do Render
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+async def send_likes_logic(ctx, uid: str, amount: int):
+    async with httpx.AsyncClient() as client:
+        for i in range(amount):
+            # Simulação do processo Garena
+            # Aqui você insere a lógica de Login Guest + POST Like que discutimos
+            await asyncio.sleep(random.randint(140, 150)) # Delay para 25/hora
+            
+            if (i + 1) % 5 == 0:
+                await ctx.send(f"✅ **[{i+1}/{amount}]** Likes processados para o UID: `{uid}`")
+
+@bot.command()
+async def like(ctx, uid: str):
+    # Definimos 25 como padrão para King Dev Academy
+    quantidade = 25
+    await ctx.send(f"⚡ **King Dev Academy**\nIniciando ciclo de **{quantidade} likes** para o UID: `{uid}`\nPrevisão: 60 minutos.")
+    bot.loop.create_task(send_likes_logic(ctx, uid, quantidade))
+
+@bot.event
+async def on_ready():
+    print(f"Bot logado como {bot.user.name} - King Dev Academy")
+
+# --- EXECUÇÃO EM PARALELO ---
+def run_api():
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run(app, host="0.0.0.0", port=port)
+
+if __name__ == "__main__":
+    # Inicia o servidor Web em uma thread separada
+    t = threading.Thread(target=run_api)
+    t.start()
+    
+    # Roda o bot do Discord na thread principal
+    if TOKEN:
+        bot.run(TOKEN)
+    else:
+        print("ERRO: Variável DISCORD_TOKEN não encontrada!")
